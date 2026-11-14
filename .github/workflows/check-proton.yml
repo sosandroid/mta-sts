@@ -15,7 +15,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Récupérer la politique Proton
         run: curl -fsS --retry 3 https://mta-sts.protonmail.com/.well-known/mta-sts.txt -o proton.txt
