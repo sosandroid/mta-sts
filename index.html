@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MTA-STS — courrier chiffré vers Proton Mail</title>
+<meta name="description" content="Politique MTA-STS de ce domaine : le courrier entrant est livré en TLS vérifié aux serveurs Proton Mail.">
+<style>
+  :root {
+    --bg: #fbfaf8; --fg: #1d1b22; --muted: #66626e; --line: #e4e1ea;
+    --card: #ffffff; --accent: #6d4aff; --ok: #1f8a5b; --bad: #c2413b;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16151a; --fg: #ece9f2; --muted: #a29dad; --line: #2c2a33;
+            --card: #1e1d24; --accent: #9b85ff; --ok: #4cc38a; --bad: #ef7a72; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 56px 20px 40px; }
+  h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 .4em; letter-spacing: -.01em; }
+  h2 { font-size: 1.25rem; margin: 2.6em 0 .6em; }
+  p { margin: 0 0 1em; }
+  .lead { font-size: 1.15rem; color: var(--muted); }
+  .tag { display: inline-block; font: 600 .75rem/1 var(--mono); letter-spacing: .06em;
+         text-transform: uppercase; color: var(--accent); margin-bottom: 14px; }
+  code, pre { font-family: var(--mono); font-size: .88rem; }
+  code { background: var(--card); border: 1px solid var(--line); padding: 1px 6px; border-radius: 5px; }
+  pre { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+        padding: 16px 18px; overflow-x: auto; margin: 0 0 1em; }
+  a { color: var(--accent); }
+
+  /* Schéma du flux */
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; align-items: center;
+          gap: 10px; margin: 28px 0 8px; }
+  .node { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 14px 12px; text-align: center; font-size: .92rem; }
+  .node b { display: block; font-size: 1rem; }
+  .node small { color: var(--muted); }
+  .arrow { color: var(--muted); font-size: 1.4rem; text-align: center; }
+  .lock { color: var(--ok); }
+  @media (max-width: 620px) {
+    .flow { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); }
+  }
+
+  ol.steps { padding-left: 1.3em; }
+  ol.steps li { margin-bottom: .6em; }
+
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .compare div { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+  .compare h3 { margin: 0 0 .4em; font-size: 1rem; }
+  .compare .no h3 { color: var(--bad); }
+  .compare .yes h3 { color: var(--ok); }
+  .compare p { margin: 0; font-size: .95rem; color: var(--muted); }
+  @media (max-width: 620px) { .compare { grid-template-columns: 1fr; } }
+
+  .status { font: .85rem var(--mono); color: var(--muted); margin-top: -.4em; }
+  .status.ok { color: var(--ok); }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line);
+           font-size: .85rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+  <span class="tag">MTA-STS · RFC 8461</span>
+  <h1>Le courrier vers <span class="dom">exemple.fr</span> voyage chiffré.</h1>
+  <p class="lead">Ce sous-domaine publie la politique <strong>MTA-STS</strong> du domaine.
+  Elle demande aux serveurs de messagerie du monde entier de ne livrer le courrier
+  qu'aux serveurs de <strong>Proton Mail</strong>, et uniquement en TLS avec un certificat valide.</p>
+
+  <div class="flow" aria-label="Schéma : serveur expéditeur, politique MTA-STS, serveurs Proton">
+    <div class="node"><b>Expéditeur</b><small>Gmail, Outlook…</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Politique</b><small>mta-sts.<span class="dom">exemple.fr</span></small></div>
+    <div class="arrow lock">🔒</div>
+    <div class="node"><b>Proton Mail</b><small>mail / mailsec.protonmail.ch</small></div>
+  </div>
+
+  <h2>Le problème</h2>
+  <p>Par défaut, SMTP chiffre « si possible ». Un attaquant placé sur le chemin peut supprimer
+  l'offre de chiffrement (<code>STARTTLS</code>) ou se faire passer pour le serveur destinataire :
+  le message part alors en clair, ou chez lui, sans que personne ne s'en aperçoive.</p>
+
+  <div class="compare">
+    <div class="no"><h3>Sans MTA-STS</h3><p>Chiffrement opportuniste : une rétrogradation vers du texte clair passe inaperçue.</p></div>
+    <div class="yes"><h3>Avec MTA-STS</h3><p>TLS obligatoire, certificat vérifié, MX autorisés listés. Sinon, le message n'est pas livré.</p></div>
+  </div>
+
+  <h2>Comment ça marche</h2>
+  <ol class="steps">
+    <li>Le serveur expéditeur lit l'enregistrement DNS <code>_mta-sts.<span class="dom">exemple.fr</span></code> : il annonce qu'une politique existe.</li>
+    <li>Il télécharge la politique en HTTPS sur ce site, protégé par un certificat <strong>Let's Encrypt</strong>.</li>
+    <li>Il vérifie que le MX visé figure dans la liste, puis exige TLS 1.2+ et un certificat valide.</li>
+    <li>Il garde la politique en cache pendant <code>max_age</code> secondes.</li>
+    <li>En cas d'échec, il peut envoyer un rapport (<strong>TLS-RPT</strong>) au propriétaire du domaine. (optionnel)</li>
+  </ol>
+
+  <h2>La politique publiée</h2>
+  <p>Fichier <a href="/.well-known/mta-sts.txt"><code>/.well-known/mta-sts.txt</code></a> :</p>
+  <pre id="policy">version: STSv1
+mode: enforce
+mx: mail.protonmail.ch
+mx: mailsec.protonmail.ch
+max_age: 604800</pre>
+
+  <h2>Les enregistrements DNS</h2>
+<pre>@            MX   10 mail.protonmail.ch.
+@            MX   20 mailsec.protonmail.ch.
+mta-sts      CNAME  &lt;compte&gt;.github.io.
+_mta-sts     TXT  "v=STSv1; id=…"
+_smtp._tls   TXT  "v=TLSRPTv1; rua=mailto:…"</pre>
+  <p class="status" id="dns-status"></p>
+
+  <h2>En complément : DNSSEC + DANE</h2>
+  <p>Proton publie des enregistrements <code>TLSA</code> sur ses serveurs MX. Si la zone
+  <span class="dom">exemple.fr</span> est signée avec DNSSEC, les serveurs compatibles DANE vérifient
+  aussi le certificat de Proton par le DNS. MTA-STS couvre Gmail et Microsoft. DANE couvre
+  Postfix et de nombreux opérateurs européens.</p>
+
+  <h2>Vérifier soi-même</h2>
+<pre>dig +short TXT _mta-sts.<span class="dom">exemple.fr</span>
+curl -s https://mta-sts.<span class="dom">exemple.fr</span>/.well-known/mta-sts.txt
+dig +short TLSA _25._tcp.mail.protonmail.ch</pre>
+  <p>Ou en ligne : <a href="https://internet.nl/test-mail/">internet.nl — test e-mail</a>.</p>
+
+  <footer>
+    Page statique hébergée sur GitHub Pages · certificat Let's Encrypt ·
+    <a href="https://datatracker.ietf.org/doc/html/rfc8461">RFC 8461</a> ·
+    <a href="https://datatracker.ietf.org/doc/html/rfc8460">RFC 8460 (TLS-RPT)</a>
+  </footer>
+</main>
+
+<script>
+  // Déduit le domaine à partir du nom d'hôte (mta-sts.exemple.fr → exemple.fr).
+  var host = location.hostname;
+  var domain = host.indexOf("mta-sts.") === 0 ? host.slice(8) : null;
+  if (domain) {
+    document.querySelectorAll(".dom").forEach(function (el) { el.textContent = domain; });
+  }
+
+  // Affiche la politique réellement servie par ce site.
+  fetch("/.well-known/mta-sts.txt", { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw 0; return r.text(); })
+    .then(function (t) {
+      document.getElementById("policy").textContent = t.trim();
+      var s = document.getElementById("policy-status");
+      s.textContent = "✓ Fichier lu en direct sur ce site.";
+      s.className = "status ok";
+    })
+    .catch(function () {
+      document.getElementById("policy-status").textContent = "Copie statique (fichier en ligne non lu).";
+    });
+
+  // Lit l'enregistrement _mta-sts via DNS-over-HTTPS.
+  if (domain) {
+    fetch("https://dns.google/resolve?type=TXT&name=_mta-sts." + domain)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        var txt = (j.Answer || []).map(function (a) { return a.data; })
+                  .filter(function (d) { return d.indexOf("v=STSv1") !== -1; })[0];
+        var s = document.getElementById("dns-status");
+        if (txt) {
+          s.textContent = "✓ _mta-sts." + domain + " → " + txt + (j.AD ? " (DNSSEC validé)" : "");
+          s.className = "status ok";
+        } else {
+          s.textContent = "Enregistrement _mta-sts." + domain + " introuvable.";
+        }
+      })
+      .catch(function () {});
+  }
+</script>
+</body>
+</html>
