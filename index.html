@@ -207,7 +207,7 @@ var I18N = {
     step3: "Il vérifie que le MX visé figure dans la liste, puis exige TLS 1.2+ et un certificat valide.",
     step4: "Il garde la politique en cache pendant <code>max_age</code> secondes.",
     step5: "En cas d'échec, il peut envoyer un rapport (<strong>TLS-RPT</strong>) au propriétaire du domaine.",
-    statusIntro: "Ces contrôles sont faits <strong>en direct, depuis votre navigateur</strong>, à chaque chargement de la page. Le DNS est interrogé via DNS-over-HTTPS (Google, puis Cloudflare en secours).",
+    statusIntro: "Ces contrôles sont faits <strong>en direct, depuis votre navigateur</strong>, à chaque chargement de la page. Le DNS est interrogé via DNS-over-HTTPS auprès de <a href='https://joindns4.eu/' rel='noopener'>DNS4EU</a>, le résolveur public européen.",
     askLabel: "Domaine à tester", askBtn: "Tester",
     pending: "Contrôles en cours…",
     cMx: "Serveurs MX du domaine", cSts: "Enregistrement <code>_mta-sts</code>",
@@ -269,7 +269,7 @@ var I18N = {
     step3: "It checks that the target MX is listed, then requires TLS 1.2+ and a valid certificate.",
     step4: "It caches the policy for <code>max_age</code> seconds.",
     step5: "On failure, it can send a report (<strong>TLS-RPT</strong>) to the domain owner.",
-    statusIntro: "These checks run <strong>live, from your browser</strong>, every time the page loads. DNS is queried over DNS-over-HTTPS (Google, with Cloudflare as a fallback).",
+    statusIntro: "These checks run <strong>live, from your browser</strong>, every time the page loads. DNS is queried over DNS-over-HTTPS through <a href='https://joindns4.eu/' rel='noopener'>DNS4EU</a>, the European public resolver.",
     askLabel: "Domain to test", askBtn: "Test",
     pending: "Running checks…",
     cMx: "Domain MX servers", cSts: "<code>_mta-sts</code> record",
@@ -354,18 +354,80 @@ document.querySelectorAll(".langs a").forEach(function (a) {
   if (a.dataset.lang === LANG) a.className = "on";
 });
 
-/* ---------- DNS-over-HTTPS helpers ---------- */
+/* ---------- DNS-over-HTTPS helpers: DNS4EU (RFC 8484, format binaire) ----------
+   DNS4EU ne propose pas d'API JSON : on encode la requête DNS et on décode
+   la réponse nous-mêmes. doh() renvoie le même objet que l'API JSON de Google
+   ({ Status, AD, Answer: [{ name, type, data }] }), le reste du script ne change pas. */
+var DOH_URL = "https://unfiltered.joindns4.eu/dns-query";
 var T = { CNAME: 5, MX: 15, TXT: 16, TLSA: 52 };
 
-function doh(name, type) {
-  var q = "name=" + encodeURIComponent(name) + "&type=" + type;
-  return fetch("https://dns.google/resolve?" + q)
-    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-    .catch(function () {
-      return fetch("https://cloudflare-dns.com/dns-query?" + q, { headers: { accept: "application/dns-json" } })
-        .then(function (r) { if (!r.ok) throw 0; return r.json(); });
-    });
+function dnsQuery(name, type) {
+  // En-tête : ID 0 (recommandé par RFC 8484 pour le cache), RD + AD, 1 question, 1 enregistrement OPT
+  var b = [0, 0, 0x01, 0x20, 0, 1, 0, 0, 0, 0, 0, 1];
+  name.replace(/\.$/, "").split(".").forEach(function (label) {
+    var l = new TextEncoder().encode(label);
+    b.push(l.length); l.forEach(function (x) { b.push(x); });
+  });
+  b.push(0, type >> 8, type & 255, 0, 1);          // fin du nom, QTYPE, QCLASS=IN
+  b.push(0, 0, 41, 0x10, 0, 0, 0, 0x80, 0, 0, 0);  // EDNS0 : 4096 octets, bit DO (DNSSEC)
+  return new Uint8Array(b);
 }
+
+function b64url(u8) {
+  var s = ""; u8.forEach(function (x) { s += String.fromCharCode(x); });
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function dnsParse(buf) {
+  var v = new DataView(buf), u8 = new Uint8Array(buf);
+  function readName(off) {
+    var labels = [], pos = off, next = -1, hops = 0;
+    for (;;) {
+      var len = u8[pos];
+      if (len === 0) { pos++; break; }
+      if ((len & 0xC0) === 0xC0) {                       // pointeur de compression
+        if (next < 0) next = pos + 2;
+        pos = ((len & 0x3F) << 8) | u8[pos + 1];
+        if (++hops > 64) throw new Error("boucle de compression");
+        continue;
+      }
+      labels.push(new TextDecoder().decode(u8.subarray(pos + 1, pos + 1 + len)));
+      pos += len + 1;
+    }
+    return { name: labels.join(".") + ".", next: next < 0 ? pos : next };
+  }
+  var flags = v.getUint16(2), qd = v.getUint16(4), an = v.getUint16(6), p = 12, i;
+  for (i = 0; i < qd; i++) p = readName(p).next + 4;
+  var answers = [];
+  for (i = 0; i < an; i++) {
+    var r = readName(p); p = r.next;
+    var type = v.getUint16(p), rdlen = v.getUint16(p + 8), rd = p + 10, data;
+    if (type === T.MX) data = v.getUint16(rd) + " " + readName(rd + 2).name;
+    else if (type === T.CNAME) data = readName(rd).name;
+    else if (type === T.TXT) {
+      var parts = [], q = rd;
+      while (q < rd + rdlen) {
+        var l = u8[q];
+        parts.push('"' + new TextDecoder().decode(u8.subarray(q + 1, q + 1 + l)) + '"');
+        q += l + 1;
+      }
+      data = parts.join(" ");
+    } else data = "(" + rdlen + " octets)";
+    answers.push({ name: r.name, type: type, data: data });
+    p = rd + rdlen;
+  }
+  return { Status: flags & 0x0F, AD: !!(flags & 0x0020), Answer: answers };
+}
+
+function doh(name, type) {
+  return fetch(DOH_URL + "?dns=" + b64url(dnsQuery(name, T[type])), {
+    headers: { accept: "application/dns-message" }
+  }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.arrayBuffer();
+  }).then(dnsParse);
+}
+
 function answers(j, type) {
   return (j.Answer || []).filter(function (a) { return a.type === T[type]; })
                          .map(function (a) { return a.data; });
