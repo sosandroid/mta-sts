@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny-ps" viewBox="0 0 512 512">
+  <title>HE</title>
+  <rect width="512" height="512" fill="#1f3a5f"/>
+  <!-- E, en bas à droite, dessous -->
+  <rect x="194" y="155" width="44" height="265" rx="12" fill="#9cc3f0"/>
+  <rect x="194" y="155" width="200" height="42" rx="12" fill="#9cc3f0"/>
+  <rect x="194" y="257" width="196" height="42" rx="12" fill="#9cc3f0"/>
+  <rect x="194" y="378" width="200" height="42" rx="12" fill="#9cc3f0"/>
+  <!-- liseré couleur du fond qui détache le H du E -->
+  <rect x="108" y="82" width="68" height="290" rx="22" fill="#1f3a5f"/>
+  <rect x="280" y="82" width="68" height="290" rx="22" fill="#1f3a5f"/>
+  <rect x="148" y="197" width="160" height="60" fill="#1f3a5f"/>
+  <!-- H, en haut à gauche, dessus -->
+  <rect x="118" y="92" width="48" height="270" rx="12" fill="#ffffff"/>
+  <rect x="290" y="92" width="48" height="270" rx="12" fill="#ffffff"/>
+  <rect x="158" y="207" width="140" height="40" fill="#ffffff"/>
+</svg>
